@@ -75,10 +75,11 @@ class Settings(BaseSettings):
     gcs_images_validation_folder_name: str = "validation"
 
     # Document processing settings
+    llm_model_id: str = "gemini-2.5-pro"
     extraction_semaphore_limit: int = 20
-    extraction_llm_model_id: str = "gemini-2.5-pro"
+    # extraction_llm_model_id: str = "gemini-2.5-pro"
     validation_semaphore_limit: int = 20
-    validation_llm_model_id: str = "gemini-2.5-pro"
+    # validation_llm_model_id: str = "gemini-2.5-pro"
 
     document_config: dict[str, ExtractionDocument | ValidationDocument] = {
         "FRI": ValidationDocument(

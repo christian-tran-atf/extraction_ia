@@ -172,7 +172,7 @@ async def _extract_and_validate_content_from_entry(
     """
     try:
         async_chat = genai_async_client.chats.create(
-            model=settings.extraction_llm_model_id,
+            model=settings.llm_model_id,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
             ),
@@ -252,8 +252,8 @@ async def _extract_content_from_entry(
             mime_type="application/pdf",
         )
         async with extraction_semaphore:
-            extraction_response = await genai_async_client.aio.models.generate_content(
-                model=settings.extraction_llm_model_id,
+            extraction_response = await genai_async_client.models.generate_content(
+                model=settings.llm_model_id,
                 contents=types.Content(
                     role="user",
                     parts=[
