@@ -1,10 +1,10 @@
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from google import genai
 from google.cloud import bigquery
-from google.genai import types
+from google.genai import errors, types
 from pydantic import ValidationError
 
 from src.config import ExtractionDocument, ValidationDocument, settings
@@ -79,9 +79,22 @@ async def process_entries(entries: list[SourceEntry]) -> list[DestinationEntry]:
         list[DestinationEntry]: List of processed DestinationEntry objects.
     """
     logs_explorer.info(f"Processing {len(entries)} entries...")
-    async with genai.Client(
-        http_options=types.HttpOptions(api_version="v1")
-    ).aio as genai_async_client:
+
+    # Initialize client based on configuration
+    if settings.google_genai_use_vertexai:
+        client = genai.Client(
+            vertexai=True,
+            project=settings.google_cloud_project,
+            location=settings.google_cloud_location,
+            http_options=types.HttpOptions(api_version="v1"),
+        )
+    else:
+        # For Google AI API, would need api_key from settings
+        raise ValueError(
+            "Google AI API mode not configured. Set GOOGLE_GENAI_USE_VERTEXAI=True or provide api_key."
+        )
+
+    async with client.aio as genai_async_client:
         active_tasks = set()
         for entry in entries:
             task = asyncio.create_task(process_entry(genai_async_client, entry))
@@ -95,6 +108,7 @@ async def process_entries(entries: list[SourceEntry]) -> list[DestinationEntry]:
                 f"Error processing entry with id {entries[i].id}: {result}"
             )
         else:
+            print(f"Result {i}:", result)
             final_entries.append(result)
     return final_entries
 
@@ -278,6 +292,11 @@ async def _extract_content_from_entry(
     except ValidationError as ve:
         logs_explorer.error(f"Pydantic validation error: {ve}")
         raise ve
+    except errors.APIError as api_err:
+        logs_explorer.error(
+            f"Google Gen AI SDK - API error during extraction/validation: {api_err}"
+        )
+        raise api_err
     except Exception as e:
         logs_explorer.error(f"Extraction error: {e}")
         raise e
