@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     gcs_images_validation_folder_name: str = "validation"
 
     # Vertex AI / Gen AI settings
-    google_genai_use_vertexai: bool
+    google_genai_use_vertexai: bool = True
     extraction_semaphore_limit: int = 20
     extraction_llm_model_id: str = "gemini-2.5-pro"
     validation_semaphore_limit: int = 20
@@ -105,7 +105,7 @@ class Settings(BaseSettings):
             "image_7_aql_special_check.png",
             "image_8_gencode_presence_on_cardboard_box_faces.png",
         ]
-        
+
         return {
             "FRI": ValidationDocument(
                 system_instruction=fri_system_instruction,
