@@ -132,117 +132,35 @@ async def process_entry(
             f"No document configuration found for type_de_document: {entry.type_de_document}"
         )
 
-    if isinstance(entry_document_config, ValidationDocument):
-        (
-            extraction_output,
-            validation_output,
-        ) = await _extract_and_validate_content_from_entry(
-            genai_async_client, entry, entry_document_config
-        )
-        logs_explorer.info(
-            f"Extraction output for entry id {entry.id}: {extraction_output}"
-        )
-        logs_explorer.info(
-            f"Validation output for entry id {entry.id}: {validation_output}"
-        )
-        processing_output = ProcessingOutput(
-            extraction_output=extraction_output.model_dump(),
-            validation_output=validation_output.model_dump(),
-        )
-        payload_json = processing_output.model_dump_json()
-    else:
-        extraction_output = await _extract_content_from_entry(
-            genai_async_client, entry, entry_document_config
-        )
-        logs_explorer.info(
-            f"Extraction output for entry id {entry.id}: {extraction_output}"
-        )
-        processing_output = ProcessingOutput(
-            extraction_output=extraction_output.model_dump()
-        )
-        payload_json = processing_output.model_dump_json()
+    extraction_output = await _extract_content_from_entry(
+        genai_async_client, entry, entry_document_config
+    )
+    logs_explorer.info(
+        f"Extraction output for entry id {entry.id}: {extraction_output}"
+    )
+
+    validation_output = None
+    # if isinstance(entry_document_config, ValidationDocument):
+    # validation_output = await _validate_content_from_entry(
+    # genai_async_client, extraction_output, entry_document_config
+    # )
+    # logs_explorer.info(
+    # f"Validation output for entry id {entry.id}: {validation_output}"
+    # )
+
+    processing_output = ProcessingOutput(
+        extraction_output=extraction_output.model_dump(),
+        validation_output=validation_output.model_dump()
+        if validation_output is not None
+        else None,
+    )
+    payload_json = processing_output.model_dump_json()
 
     return DestinationEntry(
         id=entry.id,
         type_de_document=entry.type_de_document,
         payload_json=payload_json,
     )
-
-
-async def _extract_and_validate_content_from_entry(
-    genai_async_client: Any,
-    entry: SourceEntry,
-    entry_document_config: ValidationDocument,
-) -> tuple[ExtractionOutput, ValidationOutput]:
-    """Extract and validate content from a SourceEntry object.
-
-    Args:
-        genai_async_client (Any): The asynchronous GenAI client.
-        entry (SourceEntry): The source entry.
-        entry_document_config (ValidationDocument): The document configuration.
-
-    Returns:
-        tuple[ExtractionOutput, ValidationOutput]: Extraction and validation outputs.
-    """
-    try:
-        async_chat = genai_async_client.chats.create(
-            model=settings.llm_model_id,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
-        )
-
-        pdf_file = types.Part.from_uri(
-            file_uri=entry.lien_gcs,
-            mime_type="application/pdf",
-        )
-        extraction_prompt = types.Part.from_text(
-            text=entry_document_config.extraction_prompt
-        )
-        async with extraction_semaphore:
-            extraction_response = await async_chat.send_message(
-                message=[
-                    pdf_file,
-                    extraction_prompt,
-                ],
-                config=types.GenerateContentConfig(
-                    response_json_schema=entry_document_config.extraction_output_schema_model.model_json_schema(),
-                ),
-            )
-        if extraction_response.text is None:
-            raise ValueError("No extraction response text")
-        extraction_output = (
-            entry_document_config.extraction_output_schema_model.model_validate_json(
-                extraction_response.text
-            )
-        )
-
-        validation_prompt = types.Part.from_text(
-            text=entry_document_config.validation_prompt.format(
-                extraction_output_json=extraction_response.text
-            )
-        )
-        async with validation_semaphore:
-            validation_response = await async_chat.send_message(
-                message=validation_prompt,
-                config=types.GenerateContentConfig(
-                    response_json_schema=entry_document_config.validation_output_schema_model.model_json_schema(),
-                ),
-            )
-        if validation_response.text is None:
-            raise ValueError("No validation response text")
-        validation_output = (
-            entry_document_config.validation_output_schema_model.model_validate_json(
-                validation_response.text
-            )
-        )
-        return extraction_output, validation_output
-    except ValidationError as ve:
-        logs_explorer.error(f"Pydantic validation error: {ve}")
-        raise ve
-    except Exception as e:
-        logs_explorer.error(f"Error processing: {e}")
-        raise e
 
 
 async def _extract_content_from_entry(
@@ -267,7 +185,7 @@ async def _extract_content_from_entry(
         )
         async with extraction_semaphore:
             extraction_response = await genai_async_client.models.generate_content(
-                model=settings.llm_model_id,
+                model=settings.extraction_llm_model_id,
                 contents=types.Content(
                     role="user",
                     parts=[
@@ -299,6 +217,58 @@ async def _extract_content_from_entry(
         raise api_err
     except Exception as e:
         logs_explorer.error(f"Extraction error: {e}")
+        raise e
+
+
+async def _validate_content_from_entry(
+    genai_async_client: Any,
+    extraction_output: ExtractionOutput,
+    entry_document_config: ValidationDocument,
+) -> ValidationOutput:
+    """Validate content from a SourceEntry object.
+
+    Args:
+        genai_async_client (Any): The asynchronous GenAI client.
+        extraction_output (ExtractionOutput): The extracted content to validate.
+        entry_document_config (ValidationDocument): The document configuration.
+
+    Returns:
+        tuple[ExtractionOutput, ValidationOutput]: Extraction and validation outputs.
+    """
+    try:
+        validation_prompt = types.Part.from_text(
+            text=f"```json\n{extraction_output.model_dump_json()}\n```"
+        )
+        async with validation_semaphore:
+            validation_response = await genai_async_client.models.generate_content(
+                model=settings.validation_llm_model_id,
+                contents=validation_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=entry_document_config.system_instruction.format(
+                        business_rules_json="placeholder"
+                    ),
+                    response_mime_type="application/json",
+                    response_json_schema=entry_document_config.validation_output_schema_model.model_json_schema(),
+                ),
+            )
+        if validation_response.text is None:
+            raise ValueError("No validation response text")
+        validation_output = (
+            entry_document_config.validation_output_schema_model.model_validate_json(
+                validation_response.text
+            )
+        )
+        return validation_output
+    except ValidationError as ve:
+        logs_explorer.error(f"Pydantic validation error: {ve}")
+        raise ve
+    except errors.APIError as api_err:
+        logs_explorer.error(
+            f"Google Gen AI SDK - API error during extraction/validation: {api_err}"
+        )
+        raise api_err
+    except Exception as e:
+        logs_explorer.error(f"Error processing: {e}")
         raise e
 
 
