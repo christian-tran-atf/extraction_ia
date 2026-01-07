@@ -2,16 +2,19 @@ from typing import List, Union
 
 from google.genai import types
 
-prompt = """
-You are an expert in validating document summaries.
-Your task is to assess whether the provided summary accurately reflects the content of the document.
-Please respond with "VALID" if the summary is accurate, or "INVALID" if it is not.
-
----
-Context data:
+system_instruction = """
+Tu es un assistant pour des techniciens qualité chez SIPLEC.
+Ton objectif est de valider ou non les résultats de tests 'Final Random Inspection', fournis sous format JSON.
+Pour cela, tu devras utiliser des règles de validation métiers ci-dessous :
 ```json
-{extraction_output_json}
+{business_rules_json}
 ```
 """
 
-message: Union[List[types.PartUnionDict], types.PartUnionDict] = []
+instructions_part = types.Part.from_text(
+    text="Voici le résultat de l'extraction au format JSON :"
+)
+
+prompt_without_extraction_output: Union[
+    List[types.PartUnionDict], types.PartUnionDict
+] = instructions_part
