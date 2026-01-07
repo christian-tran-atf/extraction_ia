@@ -188,14 +188,16 @@ async def _extract_content_from_entry(
                 model=settings.extraction_llm_model_id,
                 contents=types.Content(
                     role="user",
-                    parts=[
-                        pdf_file,
-                        types.Part.from_text(
-                            text=entry_document_config.extraction_prompt
-                        ),
-                    ],
+                    parts=[pdf_file]
+                    + (
+                        entry_document_config.extraction_prompt
+                        if isinstance(entry_document_config.extraction_prompt, list)
+                        else [entry_document_config.extraction_prompt]
+                    ),
                 ),
                 config=types.GenerateContentConfig(
+                    system_instruction=entry_document_config.system_instruction,
+                    response_mime_type="application/json",
                     response_json_schema=entry_document_config.extraction_output_schema_model.model_json_schema(),
                 ),
             )
